@@ -12,6 +12,7 @@
 // 27/04/26 display.println still doesnt wok ill wait till i have to display to test everything. also updated the code t be esp32 compatable 
 // 27/06/26 i have just realised i might need to reassign a lot of pin numbers
 
+//initialses and includes all libaries for the code
 #include <LoRa.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -20,6 +21,7 @@
 #include <BBQ10Keyboard.h>
 
 
+//defines pin numbers for OLED screen
 //**!!all values are for software SPI on arduino SOFTWARE SPI!!**
 // **pin definitions are currently unconfirmed treat all defs as incorrect** YOU BETTER WORK THIS OUT AND CHANGE IT
 // i have changed them (i have no clue if it will work)
@@ -30,13 +32,16 @@
 #define OLED_RESET 32 //who knows if we will need it
 //**closing the unconfrimed space in code**
 
+//tells the libaries what pins the oled screen is on
 Adafruit_SSD1305 display(128, 64, OLED_MOSI, OLED_CLK, OLED_DC, OLED_RESET, OLED_CS); //this is for sware serial on the screen
 
+// more data for the screen
 #define NUMFLAKES 10
 #define XPOS 0
 #define YPOS 1
 #define DELTAY 2
 
+//sets up the matrix for screen to define which pixel is which
 #define LOGO16_GLCD_HEIGHT 16
 #define LOGO16_GLCD_WIDTH  16
 static const unsigned char PROGMEM logo16_glcd_bmp[] =
@@ -57,19 +62,24 @@ static const unsigned char PROGMEM logo16_glcd_bmp[] =
   B01110000, B01110000,
   B00000000, B00110000 };
 
+// more variable set up this time for salve mode or master mode (transmit or recieve)
 int slave = 0; // change this to intialise in slave or master
 // enum 1 = slave; 1 != master
 
-BBQ10Keyboard keyboard;
+BBQ10Keyboard keyboard; //just makes my life a little easier
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
+
+  //initialises LoRa module and sets up the correct parameters
   LoRa.begin(915E6);// remove when lora attached
   LoRa.setTxPower(22);
   LoRa.setSpreadingFactor(12);
   LoRa.setSignalBandwidth(7.8E3);
   LoRa.setCodingRate4(8);
+
+  //this code can be used if you want the system to fail a boot if a component doesnt work
   //if (!LoRa.begin(915E6)) {
     //Serial.println("The LoRa didn't work :(((");
    // while (1);
@@ -82,6 +92,8 @@ void setup() {
 //    Serial.println("the keyboard didnt work :(");
 //    while (1) yield();
 //  }
+
+  //initalises the screen and runs through a test screen
   display.begin(0x3C); //remove when screen attached 
   display.display(); // show splashscreen
   delay(1000);
@@ -98,45 +110,51 @@ void setup() {
   display.display();
   delay(1000);
   display.clearDisplay();
+
+  //initalises keyboard
   keyboard.begin(); // remove later
   keyboard.setBacklight(0.5f);
 }
 
 void loop() {
-  const BBQ10Keyboard::KeyEvent key = keyboard.keyEvent();  
-  int packetsize = LoRa.parsePacket();
-  if (key.state == BBQ10Keyboard::StatePress && key.key == '\n' && slave != 1) {   // slave mode
+  const BBQ10Keyboard::KeyEvent key = keyboard.keyEvent(); //adds a variable class key.
+  int packetsize = LoRa.parsePacket(); // adds variable for the size of lora message being sent
+  if (slave == 1) {   //if slave is equal to 1 enter recieving mode
     Serial.println("receiving mode");
-    if (packetsize) {
-      Serial.println("Recieved Packet: ");
+    if (packetsize) { //if ypu recieve a message
+      Serial.println("Recieved Packet: "); //say you have recieved it
+      if (key.state == BBQ10Keyboard::StatePress) {
+        Serial.println("can't do that right now"); //tells the user they cannot input whlst recieving a message
       while (LoRa.available()) {
-        Serial.print((char)LoRa.read());
+        Serial.print((char)LoRa.read()); // print the message
       }
-      Serial.print(" with RSSI");
-      Serial.println(LoRa.packetRssi());
+      Serial.print(" with RSSI"); 
+      Serial.println(LoRa.packetRssi());  //and tell me the signal strength
     }
 
   }
-  if (key.state == BBQ10Keyboard::StatePress && key.key == '\n' && slave == 1) {  // master mode
-    slave = 0;
-    Serial.println("sending mode");
-    String msg = String("");
-    if (Serial.available()) {
-      Serial.println("Input message here (press enter to send): ");
-      if (key.state == BBQ10Keyboard::StatePress && key.key != '\n') {
-        String msg = msg + key.key;
+  if (key.state == BBQ10Keyboard::StatePress && key.key == '\n' && slave == 1) {  //if the enter key is pressed and the system is in recieving mode 
+    //enter transmit mode
+    slave = 0; //tells the system it is in transmit mode
+    Serial.println("sending mode"); // tells the user the system is in transmit mode
+    String msg = String(""); //creates variable for the message
+    if (Serial.available()) { //checks it can actaully ask the user to send the message
+      Serial.println("Input message here (press enter to send): "); //tells the user to enter the message
+      if (key.state == BBQ10Keyboard::StatePress && key.key != '\n') { //if a key is pressed that isn't enter 
+        String msg = msg + key.key; //add the character to the message
       }
-      for (unsigned int i = 0; i < msg.length(); i++){
-        Serial.print(msg[i] >> 4, HEX);
-        Serial.print(msg[i] & 0xF, HEX);
-      }      
+      if (key.state == BBQ10Keyboard::StatePRess && key.key == '\n') {
+        for (unsigned int i = 0; i < msg.length(); i++){ //converts the string into hex
+          Serial.print(msg[i] >> 4, HEX); //see above
+          Serial.print(msg[i] & 0xF, HEX);
+        }
+        LoRa.beginPacket(); //starts the message sending proccess
+        LoRa.print(msg);//sends the message
+        LoRa.endPacket();//finishes sending the message
+        Serial.println("message sent :)"); //tells the user the message is sent
+      }
     }
-    LoRa.beginPacket();
-    LoRa.print(msg);
-    LoRa.endPacket();
-
-    Serial.println("message sent :)");
-    slave = 1;
+    slave = 1; // tell the system to go back to recieve mode
     //ideas for screen, do i present the text as the string and update that every time (this cn be done for recieving in slave)
     //or is the better option to sort out the text (for less power intesive maybe a little harder, look into more when not on plane maybe)
   }
